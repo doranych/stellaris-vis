@@ -1,0 +1,82 @@
+:root {
+  --bg: #0b0e17;
+  --panel: #131826;
+  --text: #d8deeb;
+  --muted: #8a93a8;
+  --line: #262d40;
+  --accent: #4f8cff;
+  --hover: #1b2234;
+  --selected: #22305a;
+  --lane: #5a6380;
+  --star: #cfd6e6;
+  --glow: #ffffff;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #f4f5f8;
+  --panel: #ffffff;
+  --text: #1c2130;
+  --muted: #5d6578;
+  --line: #d9dde6;
+  --accent: #2563eb;
+  --hover: #eef1f7;
+  --selected: #dbe6ff;
+  --lane: #9aa2b5;
+  --star: #3b4252;
+  --glow: #000000;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 system-ui, sans-serif;
+}
+
+body.dragging { outline: 3px dashed var(--accent); outline-offset: -3px; }
+
+header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.file, button {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.file input { display: none; }
+button:disabled { opacity: 0.4; cursor: default; }
+
+#status { color: var(--muted); flex: 1; }
+#progress { width: 160px; accent-color: var(--accent); }
+
+main { flex: 1; display: flex; min-height: 0; }
+
+#map { flex: 1; min-width: 0; height: 100%; cursor: grab; }
+#map:active { cursor: grabbing; }
+
+#table { width: min(620px, 45%); overflow: auto; border-left: 1px solid var(--line); background: var(--panel); }
+
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:nth-child(-n + 3), td:nth-child(-n + 3) { text-align: left; }
+th { position: sticky; top: 0; background: var(--panel); cursor: pointer; user-select: none; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--hover); }
+tbody tr.selected { background: var(--selected); }
+.swatch { display: inline-block; width: 12px; height: 12px; margin-right: 2px; border: 1px solid #0006; vertical-align: middle; }

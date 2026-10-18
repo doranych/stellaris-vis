@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stellaris map</title>
+  </head>
+  <body>
+    <header>
+      <label class="file">Open .sav <input id="file" type="file" accept=".sav" /></label>
+      <button id="fit" type="button" disabled>Fit galaxy</button>
+      <progress id="progress" max="1" value="0" hidden></progress>
+      <span id="status">Drop a Stellaris .sav anywhere on the page.</span>
+      <button id="theme" type="button" aria-label="Switch colour theme"></button>
+    </header>
+    <main>
+      <canvas id="map"></canvas>
+      <section id="table"></section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

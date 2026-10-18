@@ -1,0 +1,36 @@
+version: '3'
+
+tasks:
+  wasm:
+    desc: Build the Go WASM module and copy the matching wasm_exec.js
+    env:
+      GOOS: js
+      GOARCH: wasm
+    cmds:
+      - go build -ldflags="-s -w" -o web/public/main.wasm ./cmd/wasm
+      - cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" web/src/wasm_exec.js
+
+  npm:
+    dir: web
+    cmds:
+      - npm install
+    status:
+      - test -d node_modules
+
+  dev:
+    desc: Build WASM and start the Vite dev server
+    deps: [wasm, npm]
+    dir: web
+    cmds:
+      - npm run dev
+
+  build:
+    desc: Build the static site into web/dist
+    deps: [wasm, npm]
+    dir: web
+    cmds:
+      - npm run build
+
+  test:
+    cmds:
+      - go test ./...
