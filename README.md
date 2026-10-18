@@ -4,6 +4,8 @@ Galaxy map of a Stellaris save in the browser: stars, hyperlanes, empire territo
 
 Supported saves: Stellaris 4.x in the text format. Checked on 4.0.1 and 4.5.2.
 
+This is a personal project powered by coffee and passion. There's no long-term support commitment, but any PRs are welcome.
+
 ## Running locally
 
 Requires Go 1.27, Node 22 and [Task](https://taskfile.dev).
@@ -48,6 +50,16 @@ Golden tests run on `save/testdata/ironman.sav` (4.5.2, shared by its owner). Th
 - `web`: TypeScript and Vite front end.
 
 Pushes to `main` deploy `web/dist` to GitHub Pages.
+
+## Acknowledgements
+
+Thanks to [PDX Tools](https://pdx.tools) and its parser [jomini](https://github.com/rakaly/jomini). Its approach of parsing saves in the browser with WebAssembly shaped this project, and the save parser [clausewitz-parser](https://github.com/doranych/clausewitz-parser) follows jomini's behaviour on malformed files.
+
+Stellaris is a trademark of Paradox Interactive. This project is not affiliated with Paradox; map colours are taken from the game's `flags/colors.txt`.
+
+## AI disclosure
+
+The code, tests and documentation in this repository are written with Claude, Anthropic's AI model, through Claude Code. Every change goes through a pull request that the maintainer reviews and merges.
 
 ## Licence
 
