@@ -44,6 +44,7 @@ const innerShare = 0.4
 const edgeShare = 0.94
 const edgeDepth = 16
 const bandPx = 3 // one band per this many screen pixels of depth, so steps stay invisible when zoomed in
+const maxBands = 12 // each band is a clipped stroke of every border, and Firefox's GPU canvas stalls on more
 
 // readable clamps the lightness of a #rrggbb colour for the theme and returns it as hsl().
 function readable(hex: string, theme: 'dark' | 'light'): string {
@@ -202,8 +203,8 @@ export class MapView {
         lc.lineJoin = 'round'
         // Like in the game, the fill is faint inside and brightens towards the border: bands of
         // the border path stroked inside the territory stack up near the edge.
-        // ponytail: band count grows with zoom up to 32; a distance-field shader if it is ever too slow.
-        const bands = Math.min(32, Math.max(6, Math.round((edgeDepth * this.scale) / bandPx)))
+        // ponytail: band count grows with zoom up to maxBands; a distance-field shader if it is ever too slow.
+        const bands = Math.min(maxBands, Math.max(6, Math.round((edgeDepth * this.scale) / bandPx)))
         empires.forEach((_, i) => {
           const a = sel === null ? normal : sel === i ? chosen : dimmed
           lc.globalAlpha = a * innerShare
