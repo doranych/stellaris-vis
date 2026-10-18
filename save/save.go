@@ -4,6 +4,7 @@ package save
 import (
 	"archive/zip"
 	"bytes"
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"errors"
@@ -36,6 +37,44 @@ var mainLevels = map[string]bool{
 	"starbase_level_starfortress": true,
 	"starbase_level_citadel":      true,
 	"starbase_level_gatebuilders": true,
+}
+
+// Bypass types shown as passage icons, by the icon name the page uses. Quantum catapults count as megastructures instead.
+var passages = map[string]string{
+	"gateway":          "gateway",
+	"relay_bypass":     "hyperRelay",
+	"lgate":            "lGate",
+	"wormhole":         "wormhole",
+	"strange_wormhole": "strangeWormhole",
+	"starlit_wormhole": "starlitWormhole",
+	"shroud_tunnel":    "shroudTunnel",
+}
+
+// Fleet ship classes shown on the map, true for military; stations, arks and anything else are left out.
+var fleetClasses = map[string]bool{
+	"shipclass_military":         true,
+	"shipclass_military_special": true,
+	"shipclass_science_ship":     false,
+	"shipclass_constructor":      false,
+	"shipclass_colonizer":        false,
+	"shipclass_transport":        false,
+}
+
+// megastructureName turns a type such as orbital_arc_furnace_4 into Orbital arc furnace, or "" for types
+// shown otherwise: gateways, L-gates and relays as passages, habitats as colonies.
+func megastructureName(typ string) string {
+	for _, p := range []string{"gateway", "lgate", "hyper_relay", "habitat"} {
+		if strings.HasPrefix(typ, p) {
+			return ""
+		}
+	}
+	words := strings.Split(typ, "_")
+	if last := words[len(words)-1]; len(words) > 1 {
+		if _, err := strconv.Atoi(last); err == nil || last == "restored" || last == "ruined" || last == "base" || last == "final" {
+			words = words[:len(words)-1]
+		}
+	}
+	return readable(strings.Join(words, "_"))
 }
 
 //go:embed map-colours.json
@@ -90,7 +129,7 @@ func Extract(gamestate []byte, progress Progress) (*model.Model, error) {
 		progress = func(string, float64) {}
 	}
 	progress("parse", 0)
-	root, err := clausewitz.Parse(gamestate, "version", "name", "date", "player", "galactic_object", "starbase_mgr", "ships", "country", "bypasses", "planets", "federation")
+	root, err := clausewitz.Parse(gamestate, "version", "name", "date", "player", "galactic_object", "starbase_mgr", "ships", "country", "bypasses", "planets", "federation", "megastructures", "fleet")
 	if err != nil {
 		return nil, fmt.Errorf("parse gamestate: %w", err)
 	}
@@ -214,9 +253,11 @@ func Extract(gamestate []byte, progress Progress) (*model.Model, error) {
 	type starbase struct {
 		level string
 		owner uint32
+		owned bool // false when the owner is unknown, as for enclaves
 	}
 	starbases := map[uint32]starbase{}
 	stationLevel := map[uint32]string{} // station ship id to its starbase level
+	var enclaveStations []uint32        // enclaves' stations are missing from their systems' starbase lists
 	for _, sb := range kids(root.Get("starbase_mgr").Get("starbases")) {
 		sbid, err := strconv.ParseUint(string(sb.Key), 10, 32)
 		if err != nil {
@@ -227,32 +268,38 @@ func Extract(gamestate []byte, progress Progress) (*model.Model, error) {
 			continue
 		}
 		stationLevel[station] = str(sb.Get("level"))
-		fleet, ok := shipFleet[station]
-		if !ok {
-			continue
+		if strings.HasPrefix(stationLevel[station], "starbase_level_enclave_") {
+			enclaveStations = append(enclaveStations, station)
 		}
-		if owner, ok := fleetOwner[fleet]; ok {
-			starbases[uint32(sbid)] = starbase{str(sb.Get("level")), owner}
+		// Enclaves' stations have no owner reachable through fleets but still show on the map.
+		owner, owned := fleetOwner[shipFleet[station]]
+		if _, ok := shipFleet[station]; !ok {
+			owned = false
 		}
+		starbases[uint32(sbid)] = starbase{str(sb.Get("level")), owner, owned}
 	}
 
-	// Active hyper relay bypass id to the relays it links to.
-	relays := map[uint32][]uint32{}
+	// Active bypass id to its type and the bypasses it links to.
+	type bypass struct {
+		kind  string
+		links []uint32
+	}
+	bypasses := map[uint32]bypass{}
 	for _, b := range kids(root.Get("bypasses")) {
-		if str(b.Get("type")) != "relay_bypass" || str(b.Get("active")) != "yes" {
+		if str(b.Get("active")) != "yes" {
 			continue
 		}
 		bid, err := strconv.ParseUint(string(b.Key), 10, 32)
 		if err != nil {
 			continue
 		}
+		var links []uint32
 		if conns := b.Get("active_connections"); conns != nil {
-			ids, err := conns.IDs()
-			if err == nil {
-				relays[uint32(bid)] = ids
-			}
+			links, _ = conns.IDs()
 		}
+		bypasses[uint32(bid)] = bypass{str(b.Get("type")), links}
 	}
+	bypassSystem := map[uint32]int32{} // bypass id to system index
 	systemRelay := map[uint32]uint32{} // system id to its relay bypass id
 	wayOwner := map[uint32]uint32{}    // system id to the country owning a waystation there
 
@@ -286,21 +333,45 @@ func Extract(gamestate []byte, progress Progress) (*model.Model, error) {
 			if !ok {
 				continue
 			}
-			if strings.HasPrefix(sb.level, "starbase_level_waystation") {
+			level := strings.TrimPrefix(sb.level, "starbase_level_")
+			if !sb.owned {
+				continue
+			}
+			if e, ok := empireIdx[sb.owner]; ok && !slices.Contains(s.StationOwners, e) {
+				s.StationOwners = append(s.StationOwners, e)
+			}
+			switch {
+			case strings.HasPrefix(level, "waystation_"):
 				wayOwner[s.ID] = sb.owner
+				s.Waystation, _ = strconv.Atoi(strings.TrimPrefix(level, "waystation_"))
+			case strings.HasPrefix(level, "deep_space_citadel"):
+				s.DeepSpaceCitadel = true
+			case strings.HasPrefix(level, "orbital_ring"):
+				s.OrbitalRing = true
 			}
 			if mainLevels[sb.level] && !ownerFound {
 				ownerFound = true
+				s.Station = level
 				if e, ok := empireIdx[sb.owner]; ok {
 					s.Owner = e
 				}
 			}
 		}
 		for _, n := range kids(g.Get("bypasses")) {
-			if bid, err := n.ID(); err == nil {
-				if _, ok := relays[bid]; ok {
-					systemRelay[s.ID] = bid
-				}
+			bid, err := n.ID()
+			if err != nil {
+				continue
+			}
+			b, ok := bypasses[bid]
+			if !ok {
+				continue
+			}
+			bypassSystem[bid] = int32(len(m.Systems))
+			if b.kind == "relay_bypass" {
+				systemRelay[s.ID] = bid
+			}
+			if p, ok := passages[b.kind]; ok && !slices.Contains(s.Passages, p) {
+				s.Passages = append(s.Passages, p)
 			}
 		}
 		for _, h := range kids(g.Get("hyperlane")) {
@@ -340,7 +411,7 @@ func Extract(gamestate []byte, progress Progress) (*model.Model, error) {
 	for _, l := range m.Lanes {
 		sa, sb := m.Systems[l[0]].ID, m.Systems[l[1]].ID
 		if ra, ok := systemRelay[sa]; ok {
-			if rb, ok := systemRelay[sb]; ok && slices.Contains(relays[ra], rb) {
+			if rb, ok := systemRelay[sb]; ok && slices.Contains(bypasses[ra].links, rb) {
 				m.Relays = append(m.Relays, l)
 			}
 		}
@@ -379,6 +450,16 @@ func Extract(gamestate []byte, progress Progress) (*model.Model, error) {
 			m.Empires[e].CapitalSystem = s
 		}
 	}
+	for _, st := range enclaveStations {
+		sid, err := ref(root.Get("ships").Get(strconv.FormatUint(uint64(st), 10)).Get("coordinate").Get("origin"))
+		if err != nil {
+			continue
+		}
+		if s, ok := sysIdx[sid]; ok {
+			m.Systems[s].Enclave = true
+		}
+	}
+
 	capitalOf := map[uint32]int32{}
 	for e, c := range capitalColony {
 		capitalOf[c] = e
@@ -400,11 +481,108 @@ func Extract(gamestate []byte, progress Progress) (*model.Model, error) {
 		if err != nil || t < 1 {
 			t = 1
 		}
-		// Like planets, other colony arks are not drawn; the capital ark stands in for the nomads' capital.
-		if e, ok := capitalOf[a.colony]; !ok || e != owner {
+		e, isCapital := capitalOf[a.colony]
+		m.Arks = append(m.Arks, model.Ark{System: sys, Owner: owner, Kind: kind, Tier: t, Capital: isCapital && e == owner})
+	}
+
+	for _, p := range kids(root.Get("planets").Get("planet")) {
+		// 4.5 planets link their colony; 4.0 planets only have an owner.
+		_, errColony := ref(p.Get("colony"))
+		_, errOwner := ref(p.Get("owner"))
+		if errColony != nil && errOwner != nil {
 			continue
 		}
-		m.Arks = append(m.Arks, model.Ark{System: sys, Owner: owner, Kind: kind, Tier: t})
+		pid, err := strconv.ParseUint(string(p.Key), 10, 32)
+		if err != nil {
+			continue
+		}
+		if s, ok := planetSystem[uint32(pid)]; ok {
+			m.Systems[s].Colonies++
+		}
+	}
+
+	for _, ms := range kids(root.Get("megastructures")) {
+		name := megastructureName(str(ms.Get("type")))
+		sid, err := ref(ms.Get("coordinate").Get("origin"))
+		if name == "" || err != nil {
+			continue
+		}
+		if s, ok := sysIdx[sid]; ok {
+			m.Systems[s].Megastructures = append(m.Systems[s].Megastructures, name)
+		}
+	}
+
+	seenLink := map[[2]int32]bool{}
+	for bid, b := range bypasses {
+		kind, ok := passages[b.kind]
+		if !ok || !strings.Contains(strings.ToLower(kind), "wormhole") && kind != "shroudTunnel" {
+			continue
+		}
+		for _, other := range b.links {
+			a, ok1 := bypassSystem[bid]
+			c, ok2 := bypassSystem[other]
+			if !ok1 || !ok2 || a == c {
+				continue
+			}
+			if a > c {
+				a, c = c, a
+			}
+			if !seenLink[[2]int32{a, c}] {
+				seenLink[[2]int32{a, c}] = true
+				m.WormholeLinks = append(m.WormholeLinks, model.WormholeLink{A: a, B: c, Kind: kind})
+			}
+		}
+	}
+	slices.SortFunc(m.WormholeLinks, func(x, y model.WormholeLink) int { return cmp.Or(cmp.Compare(x.A, y.A), cmp.Compare(x.B, y.B)) })
+
+	type fleetKey struct {
+		system, owner int32
+		military      bool
+	}
+	fleets := map[fleetKey]*model.Fleets{}
+	var fleetOrder []fleetKey
+	for _, f := range kids(root.Get("fleet")) {
+		military, ok := fleetClasses[str(f.Get("ship_class"))]
+		// 4.0 saves have no ship_class but flag stations and civilian fleets instead.
+		if f.Get("ship_class") == nil && str(f.Get("station")) != "yes" {
+			military, ok = str(f.Get("civilian")) != "yes", true
+		}
+		if !ok {
+			continue
+		}
+		fid, err := strconv.ParseUint(string(f.Key), 10, 32)
+		if err != nil {
+			continue
+		}
+		c, owned := fleetOwner[uint32(fid)]
+		owner, painted := empireIdx[c]
+		if !owned || !painted {
+			continue
+		}
+		sid, err := ref(f.Get("movement_manager").Get("coordinate").Get("origin"))
+		if err != nil {
+			continue
+		}
+		sys, ok := sysIdx[sid]
+		if !ok {
+			continue
+		}
+		k := fleetKey{sys, owner, military}
+		if fleets[k] == nil {
+			fleets[k] = &model.Fleets{System: sys, Owner: owner, Military: military}
+			fleetOrder = append(fleetOrder, k)
+		}
+		ships, power := len(kids(f.Get("ships"))), num(f.Get("military_power"))
+		fg := fleets[k]
+		fg.Fleets++
+		fg.Ships += ships
+		fg.Power += power
+		if military {
+			fg.List = append(fg.List, model.Fleet{Name: Name(f.Get("name")), Ships: ships, Power: power})
+		}
+	}
+	for _, k := range fleetOrder {
+		m.Fleets = append(m.Fleets, *fleets[k])
 	}
 	labels(m)
 	progress("territory", 0)
@@ -418,7 +596,9 @@ func Extract(gamestate []byte, progress Progress) (*model.Model, error) {
 			m.Empires[s.Owner].Systems++
 		}
 	}
-	cells := geom.Cells(pts, territoryRadius*medianNearest(pts))
+	spacing := medianNearest(pts)
+	m.Spacing = float32(spacing)
+	cells := geom.Cells(pts, territoryRadius*spacing)
 	for i, c := range cells {
 		if owners[i] < 0 {
 			continue
@@ -544,6 +724,13 @@ func Name(n *clausewitz.Node) string {
 		return ""
 	}
 	key := str(n.Get("key"))
+	if str(n.Get("literal")) == "yes" {
+		return key
+	}
+	// Format keys such as SUFFIX_NAME_FORMAT only order their variables.
+	if strings.HasSuffix(key, "_FORMAT") && key == strings.ToUpper(key) {
+		key = ""
+	}
 	vars := map[string]string{}
 	var order []string
 	for _, v := range kids(n.Get("variables")) {

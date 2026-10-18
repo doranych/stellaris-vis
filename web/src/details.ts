@@ -8,7 +8,7 @@ export function renderDetails(root: HTMLElement, m: Model | null, i: number | nu
   if (!m || !e) return
 
   const list = (xs: string[] | null | undefined) => escape((xs ?? []).join(', ')) || '—'
-  const ark = m.arks?.find((a) => a.owner === i)
+  const ark = m.arks?.find((a) => a.owner === i && a.capital)
   const capital =
     e.capitalSystem >= 0
       ? escape(m.systems[e.capitalSystem].name)

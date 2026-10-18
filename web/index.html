@@ -12,12 +12,19 @@
       <button id="fit" type="button" disabled>Fit galaxy</button>
       <progress id="progress" max="1" value="0" hidden></progress>
       <span id="status">Drop a Stellaris .sav anywhere on the page.</span>
+      <label class="toggle" title="Show where wormholes and gateways lead">
+        <input id="spoilers" type="checkbox" /> Spoilers
+      </label>
       <button id="theme" type="button" aria-label="Switch colour theme"></button>
     </header>
     <main>
       <div id="map-wrap">
         <canvas id="map"></canvas>
         <div id="tooltip" hidden></div>
+        <details id="legend">
+          <summary>Legend</summary>
+          <div id="legend-items"></div>
+        </details>
       </div>
       <aside id="side">
         <section id="details" hidden></section>

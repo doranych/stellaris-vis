@@ -6,8 +6,29 @@ export interface Model {
   lanes: [number, number][] | null
   relays: [number, number][] | null
   wayLines: { a: number; b: number; owner: number }[] | null
-  arks: { system: number; owner: number; kind: string; tier: number }[] | null
+  arks: Ark[] | null
+  wormholeLinks: { a: number; b: number; kind: string }[] | null
+  fleets: Fleets[] | null
   empires: Empire[] | null
+  spacing: number
+}
+
+export interface Ark {
+  system: number
+  owner: number
+  kind: string
+  tier: number
+  capital: boolean
+}
+
+export interface Fleets {
+  system: number
+  owner: number
+  military: boolean
+  fleets: number
+  ships: number
+  power: number
+  list?: { name: string; ships: number; power: number }[]
 }
 
 export interface System {
@@ -16,6 +37,15 @@ export interface System {
   x: number
   y: number
   owner: number
+  station?: string
+  deepSpaceCitadel?: boolean
+  orbitalRing?: boolean
+  enclave?: boolean
+  waystation?: number
+  colonies?: number
+  megastructures?: string[]
+  passages?: string[]
+  stationOwners?: number[]
 }
 
 export interface Empire {

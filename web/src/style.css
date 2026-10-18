@@ -10,6 +10,8 @@
   --lane: #5a6380;
   --star: #cfd6e6;
   --glow: #ffffff;
+  --neutral-icon: #f2f4f8;
+  --neutral-chip: #3a4460;
   color-scheme: dark;
 }
 
@@ -25,6 +27,8 @@
   --lane: #9aa2b5;
   --star: #3b4252;
   --glow: #000000;
+  --neutral-icon: #1c2130;
+  --neutral-chip: #dde2ec;
   color-scheme: light;
 }
 
@@ -60,6 +64,8 @@ header {
   cursor: pointer;
 }
 .file input { display: none; }
+.toggle { display: flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; user-select: none; }
+.toggle input { accent-color: var(--accent); margin: 0; }
 button:disabled { opacity: 0.4; cursor: default; }
 
 #status { color: var(--muted); flex: 1; }
@@ -105,3 +111,24 @@ tbody tr { cursor: pointer; }
 tbody tr:hover { background: var(--hover); }
 tbody tr.selected { background: var(--selected); }
 .swatch { display: inline-block; width: 12px; height: 12px; margin-right: 2px; border: 1px solid #0006; vertical-align: middle; }
+
+#legend {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  max-width: calc(100% - 16px);
+  max-height: 75%;
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 12px;
+}
+#legend[open] { width: 660px; }
+#legend summary { cursor: pointer; color: var(--muted); }
+#legend-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px 14px; margin-top: 8px; }
+#legend-items div { display: flex; align-items: center; gap: 8px; }
+#legend-items h4 { grid-column: 1 / -1; margin: 6px 0 0; font-size: 11px; color: var(--muted); font-weight: 600; }
+#legend-items svg { flex: none; }
