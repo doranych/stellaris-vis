@@ -1,0 +1,5 @@
+web/node_modules/
+web/dist/
+web/public/main.wasm
+web/src/wasm_exec.js
+.idea/
