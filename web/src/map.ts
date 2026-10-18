@@ -1,4 +1,5 @@
 import { drawArk } from './ark'
+import { themeVar } from './icons'
 import type { Model } from './model'
 import { fmt } from './table'
 import { drawSystems, hasStation, iconsFromPx, indexSystems, namesFromPx, systemTooltip, type SystemIndex } from './systems'
@@ -31,7 +32,7 @@ function star(x: number, y: number, r: number): Path2D {
 }
 
 // Map colours that follow the page theme, read from CSS custom properties.
-const themeColour = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+const themeColour = themeVar
 
 // Lightness bounds that keep flag colours such as black or pale yellow visible on each background.
 const lightness = { dark: { min: 0.45, max: 1 }, light: { min: 0, max: 0.6 } }
