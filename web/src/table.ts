@@ -1,10 +1,15 @@
 import type { Empire } from './model'
 
-type Column = { title: string; value: (e: Empire) => string | number; cell?: (e: Empire) => string }
+// short is the header text when the full title is too wide; the full title stays as a hover hint.
+type Column = { title: string; short?: string; value: (e: Empire) => string | number; cell?: (e: Empire) => string }
 
-const fmt = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 0 })
+export const fmt = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 0 })
 
-const escape = (s: string) =>
+// The table shows 3.2M rather than 3,205,668 so all columns fit without horizontal scrolling.
+// en-US writes 2.3M where en-GB writes 2.3m, which reads like metres.
+const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
+
+export const escape = (s: string) =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
 
 const columns: Column[] = [
@@ -13,12 +18,17 @@ const columns: Column[] = [
     value: (e) => e.borderColour,
     cell: (e) => `<span class="swatch" style="background:${e.borderColour}"></span><span class="swatch" style="background:${e.fillColour}"></span>`,
   },
-  { title: 'Empire', value: (e) => e.name, cell: (e) => escape(e.name) + (e.isPlayer ? ' ★' : '') },
-  { title: 'Type', value: (e) => e.type },
-  { title: 'Victory', value: (e) => e.victoryScore },
-  { title: 'Systems', value: (e) => e.systems },
-  { title: 'Military', value: (e) => e.militaryPower },
-  { title: 'Economy', value: (e) => e.economyPower },
+  {
+    title: 'Empire',
+    value: (e) => e.name,
+    // Almost every empire is default, so only the other types are shown, under the name.
+    cell: (e) =>
+      escape(e.name) + (e.isPlayer ? ' ★' : '') + (e.type !== 'default' ? `<span class="type">${escape(e.type.replaceAll('_', ' '))}</span>` : ''),
+  },
+  { title: 'Victory', short: 'VP', value: (e) => e.victoryScore },
+  { title: 'Systems', short: 'Sys', value: (e) => e.systems },
+  { title: 'Military', short: 'Mil', value: (e) => e.militaryPower },
+  { title: 'Economy', short: 'Econ', value: (e) => e.economyPower },
   { title: 'Tech', value: (e) => e.techPower },
   { title: 'Fleet', value: (e) => e.fleetSize },
 ]
@@ -66,13 +76,13 @@ export class EmpireTable {
       return this.desc ? -c : c
     })
     const head = columns
-      .map((c, i) => `<th data-col="${i}">${c.title}${i === this.sortBy ? (this.desc ? ' ▼' : ' ▲') : ''}</th>`)
+      .map((c, i) => `<th data-col="${i}" title="${c.title}">${c.short ?? c.title}${i === this.sortBy ? (this.desc ? ' ▼' : ' ▲') : ''}</th>`)
       .join('')
     const body = rows
       .map(({ e, i }) => {
         const cells = columns.map((c) => {
           const v = c.value(e)
-          return `<td>${c.cell ? c.cell(e) : typeof v === 'number' ? fmt.format(v) : escape(v)}</td>`
+          return `<td>${c.cell ? c.cell(e) : typeof v === 'number' ? compact.format(v) : escape(v)}</td>`
         })
         return `<tr data-empire="${i}"${i === this.selected ? ' class="selected"' : ''}>${cells.join('')}</tr>`
       })

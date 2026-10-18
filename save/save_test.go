@@ -22,6 +22,7 @@ func TestName(t *testing.T) {
 		{`name={ key="%ADJECTIVE%" variables={ {key="adjective" value={key="SPEC_Zmelder"}} {key="1" value={key="%ADJ%" variables={ {key="1" value={key="Sacred_Theocracy"}} }}} } }`, "Zmelder Sacred Theocracy"},
 		{`name={ key="%ADJ%" variables={ {key="1" value={key="Interstellar" variables={ {key="1" value={key="Nucleus"}} }}} } }`, "Interstellar Nucleus"},
 		{`name={ key="Gottara" }`, "Gottara"},
+		{`name={ key="%ADJ%" variables={ {key="1" value={key="Allianceof" variables={ {key="1" value={key="StarNations"}} }}} } }`, "Alliance of StarNations"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {

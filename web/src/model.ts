@@ -33,6 +33,18 @@ export interface Empire {
   victoryRank: number
   isPlayer: boolean
   capitalSystem: number
+  authority: string
+  government: string
+  origin: string
+  ethics: string[] | null
+  civics: string[] | null
+  ascensionPerks: string[] | null
+  colonies: number
+  pops: number
+  empireSize: number
+  federation?: string
+  overlord?: string
+  subjects?: string[]
   label?: { x: number; y: number; width: number; systems: number }
   cells: number[][] | null
   borders: number[] | null

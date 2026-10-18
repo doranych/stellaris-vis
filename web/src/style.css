@@ -67,14 +67,39 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 main { flex: 1; display: flex; min-height: 0; }
 
-#map { flex: 1; min-width: 0; height: 100%; cursor: grab; }
+#map-wrap { flex: 1; min-width: 0; position: relative; }
+#map { display: block; width: 100%; height: 100%; cursor: grab; }
 #map:active { cursor: grabbing; }
 
-#table { width: min(620px, 45%); overflow: auto; border-left: 1px solid var(--line); background: var(--panel); }
+#tooltip {
+  position: absolute;
+  pointer-events: none;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  white-space: pre-line;
+  box-shadow: 0 2px 8px #0005;
+}
+#tooltip b { display: block; }
+
+#side { width: clamp(470px, 45%, 620px); display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--panel); }
+#table { flex: 1; overflow: hidden auto; }
+
+#details { max-height: 55%; overflow: auto; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+#details h2 { margin: 0 0 2px; font-size: 16px; }
+#details .sub { color: var(--muted); margin-bottom: 8px; }
+#details dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 0; }
+#details dt { color: var(--muted); }
+#details dd { margin: 0; }
+#details .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; margin: 8px 0; font-variant-numeric: tabular-nums; }
+#details .stats div span { display: block; color: var(--muted); font-size: 11px; }
 
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-th, td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
-th:nth-child(-n + 3), td:nth-child(-n + 3) { text-align: left; }
+th, td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:nth-child(-n + 2), td:nth-child(-n + 2) { text-align: left; }
+td:nth-child(2) { white-space: normal; width: 100%; }
+td .type { display: block; color: var(--muted); font-size: 11px; }
 th { position: sticky; top: 0; background: var(--panel); cursor: pointer; user-select: none; }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: var(--hover); }

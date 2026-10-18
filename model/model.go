@@ -63,6 +63,19 @@ type Empire struct {
 	VictoryRank   int     `json:"victoryRank"` // 1 is first; 0 when the save has none
 	IsPlayer      bool    `json:"isPlayer"`
 	CapitalSystem int32   `json:"capitalSystem"` // index into Systems, or -1
+	// Game keys below are made readable without localisation: civic_beastmasters becomes Beastmasters.
+	Authority      string   `json:"authority"`
+	Government     string   `json:"government"`
+	Origin         string   `json:"origin"`
+	Ethics         []string `json:"ethics"`
+	Civics         []string `json:"civics"`
+	AscensionPerks []string `json:"ascensionPerks"`
+	Colonies       int      `json:"colonies"`
+	Pops           int      `json:"pops"`
+	EmpireSize     int      `json:"empireSize"`
+	Federation     string   `json:"federation,omitempty"`
+	Overlord       string   `json:"overlord,omitempty"`
+	Subjects       []string `json:"subjects,omitempty"`
 	// Label is where the name goes: the largest hyperlane-connected group of the empire's systems. Nil without systems.
 	Label *Label `json:"label,omitempty"`
 	// Cells are the clipped Voronoi cells of the empire's systems as flat x0,y0,x1,y1,… rings.
