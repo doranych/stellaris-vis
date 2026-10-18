@@ -1,4 +1,5 @@
 import { drawArk } from './ark'
+import { themeVar } from './icons'
 import type { Model } from './model'
 import { fmt } from './table'
 import { drawSystems, hasStation, iconsFromPx, indexSystems, namesFromPx, systemTooltip, type SystemIndex } from './systems'
@@ -31,7 +32,7 @@ function star(x: number, y: number, r: number): Path2D {
 }
 
 // Map colours that follow the page theme, read from CSS custom properties.
-const themeColour = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+const themeColour = themeVar
 
 // Lightness bounds that keep flag colours such as black or pale yellow visible on each background.
 const lightness = { dark: { min: 0.45, max: 1 }, light: { min: 0, max: 0.6 } }
@@ -43,6 +44,7 @@ const innerShare = 0.4
 const edgeShare = 0.94
 const edgeDepth = 16
 const bandPx = 3 // one band per this many screen pixels of depth, so steps stay invisible when zoomed in
+const maxBands = 12 // each band is a clipped stroke of every border, and Firefox's GPU canvas stalls on more
 
 // readable clamps the lightness of a #rrggbb colour for the theme and returns it as hsl().
 function readable(hex: string, theme: 'dark' | 'light'): string {
@@ -201,8 +203,8 @@ export class MapView {
         lc.lineJoin = 'round'
         // Like in the game, the fill is faint inside and brightens towards the border: bands of
         // the border path stroked inside the territory stack up near the edge.
-        // ponytail: band count grows with zoom up to 32; a distance-field shader if it is ever too slow.
-        const bands = Math.min(32, Math.max(6, Math.round((edgeDepth * this.scale) / bandPx)))
+        // ponytail: band count grows with zoom up to maxBands; a distance-field shader if it is ever too slow.
+        const bands = Math.min(maxBands, Math.max(6, Math.round((edgeDepth * this.scale) / bandPx)))
         empires.forEach((_, i) => {
           const a = sel === null ? normal : sel === i ? chosen : dimmed
           lc.globalAlpha = a * innerShare

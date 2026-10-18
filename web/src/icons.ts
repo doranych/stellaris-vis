@@ -3,6 +3,19 @@
 
 export type IconName = keyof typeof icons
 
+const themeVars = new Map<string, string>()
+
+// themeVar reads a CSS custom property of the current theme; values are cached since the map asks every frame.
+export function themeVar(name: string): string {
+  const key = `${document.documentElement.dataset.theme}|${name}`
+  let v = themeVars.get(key)
+  if (v === undefined) {
+    v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+    themeVars.set(key, v)
+  }
+  return v
+}
+
 const hexagon = 'M12 4 L19 8 L19 16 L12 20 L5 16 L5 8Z'
 const planet = '<circle cx="12" cy="13" r="5" fill="{C}"/>'
 const ring = '<ellipse cx="12" cy="13" rx="9.5" ry="3" fill="none" stroke="{C}" stroke-width="1.5" transform="rotate(-20 12 13)"/>'

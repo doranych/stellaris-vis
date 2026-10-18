@@ -1,4 +1,4 @@
-import { iconSvg, otherFleets, ownFleets, type IconName } from './icons'
+import { iconSvg, otherFleets, ownFleets, themeVar, type IconName } from './icons'
 import type { Ark, Fleets, Model, System } from './model'
 import { fmt } from './table'
 
@@ -51,19 +51,39 @@ function drawStars(ctx: CanvasRenderingContext2D, n: number, x: number, bottom: 
   }
 }
 
-const images = new Map<string, HTMLImageElement>()
+// Icons are rasterised once into small canvases: drawing an SVG image directly re-renders it on every frame,
+// which Firefox does slowly.
+const images = new Map<string, HTMLCanvasElement | null>()
 
-// image returns the icon rendered to an image, starting the load on first use; onLoad redraws once it is ready.
-function image(name: IconName, colour: string, level: number | undefined, onLoad: () => void): HTMLImageElement | null {
-  const key = `${document.documentElement.dataset.theme}|${name}|${colour}|${level}`
-  let img = images.get(key)
-  if (!img) {
-    img = new Image()
-    img.onload = onLoad
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(iconSvg(name, colour, iconPx * 2, level))
-    images.set(key, img)
+const widths = new Map<string, number>()
+
+// textWidth caches measureText by the context's current font, since names are measured on every frame.
+function textWidth(ctx: CanvasRenderingContext2D, s: string): number {
+  const key = `${ctx.font}|${s}`
+  let w = widths.get(key)
+  if (w === undefined) {
+    w = ctx.measureText(s).width
+    widths.set(key, w)
   }
-  return img.complete && img.naturalWidth > 0 ? img : null
+  return w
+}
+
+// image returns the icon as a bitmap, starting the load on first use; onLoad redraws once it is ready.
+function image(name: IconName, colour: string, level: number | undefined, onLoad: () => void): HTMLCanvasElement | null {
+  const dpr = window.devicePixelRatio || 1
+  const key = `${document.documentElement.dataset.theme}|${name}|${colour}|${level}|${dpr}`
+  if (images.has(key)) return images.get(key) ?? null
+  images.set(key, null)
+  const img = new Image()
+  img.onload = () => {
+    const c = document.createElement('canvas')
+    c.width = c.height = Math.ceil(iconPx * dpr)
+    c.getContext('2d')?.drawImage(img, 0, 0, c.width, c.height)
+    images.set(key, c)
+    onLoad()
+  }
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(iconSvg(name, colour, iconPx * 2, level))
+  return null
 }
 
 export const maxStars = 7
@@ -115,11 +135,10 @@ export function drawSystems({ ctx, m, index, sel, border, unowned, scale, toScre
   const spacingPx = m.spacing * scale
   if (spacingPx < namesFromPx) return
   const withIcons = spacingPx >= iconsFromPx
-  const css = getComputedStyle(document.documentElement)
-  const text = css.getPropertyValue('--text').trim()
-  const bg = css.getPropertyValue('--bg').trim()
-  const panel = css.getPropertyValue('--panel').trim()
-  const line = css.getPropertyValue('--line').trim()
+  const text = themeVar('--text')
+  const bg = themeVar('--bg')
+  const panel = themeVar('--panel')
+  const line = themeVar('--line')
   const capitals = new Set(empires.map((e) => e.capitalSystem))
 
   const visible = m.systems
@@ -138,7 +157,7 @@ export function drawSystems({ ctx, m, index, sel, border, unowned, scale, toScre
     const dim = sel !== null && !mine
 
     ctx.font = `${mine ? 600 : 400} 11px system-ui, sans-serif`
-    const nameW = ctx.measureText(s.name).width
+    const nameW = textWidth(ctx, s.name)
     const nameBox = { x0: x - nameW / 2 - 2, y0: y + 5, x1: x + nameW / 2 + 2, y1: y + 19 }
     if (overlaps(nameBox, placed)) continue
     placed.push(nameBox)
@@ -161,7 +180,7 @@ export function drawSystems({ ctx, m, index, sel, border, unowned, scale, toScre
       if (k > 0) rowW += iconGap
       if (k > 0 && sl.neutral && !slots[k - 1].neutral) rowW += groupGap
       offsets.push(rowW)
-      rowW += iconPx + (sl.count !== undefined ? ctx.measureText(String(sl.count)).width + 1 : 0)
+      rowW += iconPx + (sl.count !== undefined ? textWidth(ctx, String(sl.count)) + 1 : 0)
       if (sl.stars) rowW += Math.min(sl.stars, starsPerRow) * starPx + 1
     })
     // The capital ark's large icon already sits right above the star, so the row goes above it.
