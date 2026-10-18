@@ -7,6 +7,8 @@ const relayWidth = 2.5
 const capitalRadius = 7 // CSS pixels
 const labelScale = 3 // world units of font size per square root of systems
 const minLabelPx = 9 // smaller labels are hidden until zoomed in
+const layerMargin = 0.25 // share of the screen cached beyond each edge of the territory layer
+const zoomIdleMs = 150 // the stretched territory layer is redrawn once the wheel rests this long
 const hoverRadius = 10 // CSS pixels from a star that still count as pointing at it
 const arkSize = 26 // CSS pixels
 const arkLift = 16 // above the star, which stays visible
@@ -32,9 +34,11 @@ const lightness = { dark: { min: 0.45, max: 1 }, light: { min: 0, max: 0.6 } }
 
 // Fill opacity: normal, selected, dimmed.
 const fillAlpha = { dark: [0.35, 0.55, 0.12], light: [0.22, 0.4, 0.07] }
-// Share of that opacity in the middle of a territory, and the edge bands: depth in map units from the border and share.
+// Share of that opacity in the middle of a territory; the edge glow adds edgeShare more at the border, fading over edgeDepth map units.
 const innerShare = 0.4
-const edgeBands: [number, number][] = [[16, 0.12], [12, 0.12], [9, 0.14], [6, 0.16], [4, 0.18], [2, 0.22]]
+const edgeShare = 0.94
+const edgeDepth = 16
+const bandPx = 3 // one band per this many screen pixels of depth, so steps stay invisible when zoomed in
 
 // readable clamps the lightness of a #rrggbb colour for the theme and returns it as hsl().
 function readable(hex: string, theme: 'dark' | 'light'): string {
@@ -61,6 +65,11 @@ export class MapView {
   private relays = new Path2D()
   private wayLines = new Map<number, Path2D>() // by owner empire index, -1 for unpainted owners
   private arkHits: { x: number; y: number; owner: number }[] = [] // screen positions from the last draw
+  private layer = { canvas: document.createElement('canvas'), key: '', scale: 1, tx: 0, ty: 0 }
+  private modelVersion = 0
+  private zooming = false
+  private zoomTimer = 0
+  private frame = 0
   private scale = 1
   private tx = 0
   private ty = 0
@@ -80,6 +89,7 @@ export class MapView {
 
   load(model: Model) {
     this.model = model
+    this.modelVersion++
     this.selected = null
     this.fills = []
     this.borders = []
@@ -154,24 +164,54 @@ export class MapView {
     const border = empires.map((e) => readable(e.borderColour, theme))
     const [normal, chosen, dimmed] = fillAlpha[theme]
 
-    // Like in the game, the fill is faint inside and brightens towards the border: bands of
-    // the border path stroked inside the territory stack up near the edge.
-    empires.forEach((_, i) => {
-      const a = sel === null ? normal : sel === i ? chosen : dimmed
-      ctx.globalAlpha = a * innerShare
-      ctx.fillStyle = fill[i]
-      ctx.fill(this.fills[i])
-      ctx.save()
-      ctx.clip(this.fills[i])
-      ctx.strokeStyle = fill[i]
-      for (const [depth, share] of edgeBands) {
-        ctx.globalAlpha = a * share
-        ctx.lineWidth = 2 * depth
-        ctx.stroke(this.borders[i])
+    // The territory layer is the slow part, so it is cached: panning moves it, zooming stretches it until the wheel rests.
+    // ponytail: zooming out leaves blank edges for zoomIdleMs; render a wider margin if that bothers.
+    const key = `${this.modelVersion}|${theme}|${sel}|${w}x${h}`
+    const L = this.layer
+    // A margin of a quarter screen on each side keeps short pans from uncovering empty edges.
+    const mw = Math.round(w * layerMargin), mh = Math.round(h * layerMargin)
+    const panned = Math.abs(this.tx - L.tx) * dpr >= mw || Math.abs(this.ty - L.ty) * dpr >= mh
+    if (L.key !== key || (!this.zooming && (L.scale !== this.scale || panned))) {
+      L.canvas.width = w + 2 * mw
+      L.canvas.height = h + 2 * mh
+      const lc = L.canvas.getContext('2d')
+      if (lc) {
+        lc.setTransform(k, 0, 0, k, dpr * this.tx + mw, dpr * this.ty + mh)
+        // Butt caps leave notches at every border vertex, which show as light wedges.
+        lc.lineCap = 'round'
+        lc.lineJoin = 'round'
+        // Like in the game, the fill is faint inside and brightens towards the border: bands of
+        // the border path stroked inside the territory stack up near the edge.
+        // ponytail: band count grows with zoom up to 32; a distance-field shader if it is ever too slow.
+        const bands = Math.min(32, Math.max(6, Math.round((edgeDepth * this.scale) / bandPx)))
+        empires.forEach((_, i) => {
+          const a = sel === null ? normal : sel === i ? chosen : dimmed
+          lc.globalAlpha = a * innerShare
+          lc.fillStyle = fill[i]
+          lc.fill(this.fills[i])
+          lc.save()
+          lc.clip(this.fills[i])
+          lc.strokeStyle = fill[i]
+          lc.globalAlpha = (a * edgeShare) / bands
+          for (let b = bands; b >= 1; b--) {
+            lc.lineWidth = (2 * edgeDepth * b) / bands
+            lc.stroke(this.borders[i])
+          }
+          lc.restore()
+        })
       }
-      ctx.restore()
-    })
-    ctx.globalAlpha = 1
+      Object.assign(L, { key, scale: this.scale, tx: this.tx, ty: this.ty })
+    }
+    const f = this.scale / L.scale
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.drawImage(
+      L.canvas,
+      dpr * (this.tx - L.tx * f) - mw * f,
+      dpr * (this.ty - L.ty * f) - mh * f,
+      L.canvas.width * f,
+      L.canvas.height * f,
+    )
+    ctx.setTransform(k, 0, 0, k, dpr * this.tx, dpr * this.ty)
 
     ctx.lineCap = 'round'
     ctx.strokeStyle = themeColour('--lane')
@@ -286,6 +326,15 @@ export class MapView {
     ctx.setTransform(k, 0, 0, k, dpr * this.tx, dpr * this.ty)
   }
 
+  // requestDraw coalesces bursts of wheel and pointer events into one redraw per frame.
+  private requestDraw() {
+    if (this.frame) return
+    this.frame = requestAnimationFrame(() => {
+      this.frame = 0
+      this.draw()
+    })
+  }
+
   private listen() {
     const c = this.canvas
     let drag: { x: number; y: number; moved: boolean } | null = null
@@ -296,7 +345,13 @@ export class MapView {
       this.tx = e.offsetX - (e.offsetX - this.tx) * f
       this.ty = e.offsetY - (e.offsetY - this.ty) * f
       this.scale *= f
-      this.draw()
+      this.zooming = true
+      clearTimeout(this.zoomTimer)
+      this.zoomTimer = setTimeout(() => {
+        this.zooming = false
+        this.requestDraw()
+      }, zoomIdleMs)
+      this.requestDraw()
     }, { passive: false })
 
     c.addEventListener('pointerdown', (e) => {
@@ -317,7 +372,7 @@ export class MapView {
       this.ty += dy
       drag.x = e.clientX
       drag.y = e.clientY
-      this.draw()
+      this.requestDraw()
     })
     c.addEventListener('pointerup', (e) => {
       if (drag && !drag.moved) this.onPick(this.pick(e.offsetX, e.offsetY))
