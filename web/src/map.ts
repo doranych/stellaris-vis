@@ -1,11 +1,13 @@
 import { drawArk } from './ark'
 import type { Model } from './model'
+import { fmt } from './table'
 
 const wayLineWidth = 5
 const relayWidth = 2.5
 const capitalRadius = 7 // CSS pixels
 const labelScale = 3 // world units of font size per square root of systems
 const minLabelPx = 9 // smaller labels are hidden until zoomed in
+const hoverRadius = 10 // CSS pixels from a star that still count as pointing at it
 const arkSize = 26 // CSS pixels
 const arkLift = 16 // above the star, which stays visible
 
@@ -30,6 +32,9 @@ const lightness = { dark: { min: 0.45, max: 1 }, light: { min: 0, max: 0.6 } }
 
 // Fill opacity: normal, selected, dimmed.
 const fillAlpha = { dark: [0.35, 0.55, 0.12], light: [0.22, 0.4, 0.07] }
+// Share of that opacity in the middle of a territory, and the edge bands: depth in map units from the border and share.
+const innerShare = 0.4
+const edgeBands: [number, number][] = [[16, 0.12], [12, 0.12], [9, 0.14], [6, 0.16], [4, 0.18], [2, 0.22]]
 
 // readable clamps the lightness of a #rrggbb colour for the theme and returns it as hsl().
 function readable(hex: string, theme: 'dark' | 'light'): string {
@@ -63,6 +68,7 @@ export class MapView {
 
   constructor(
     private canvas: HTMLCanvasElement,
+    private tooltip: HTMLElement,
     private onPick: (empire: number | null) => void,
   ) {
     const ctx = canvas.getContext('2d')
@@ -148,10 +154,22 @@ export class MapView {
     const border = empires.map((e) => readable(e.borderColour, theme))
     const [normal, chosen, dimmed] = fillAlpha[theme]
 
+    // Like in the game, the fill is faint inside and brightens towards the border: bands of
+    // the border path stroked inside the territory stack up near the edge.
     empires.forEach((_, i) => {
-      ctx.globalAlpha = sel === null ? normal : sel === i ? chosen : dimmed
+      const a = sel === null ? normal : sel === i ? chosen : dimmed
+      ctx.globalAlpha = a * innerShare
       ctx.fillStyle = fill[i]
       ctx.fill(this.fills[i])
+      ctx.save()
+      ctx.clip(this.fills[i])
+      ctx.strokeStyle = fill[i]
+      for (const [depth, share] of edgeBands) {
+        ctx.globalAlpha = a * share
+        ctx.lineWidth = 2 * depth
+        ctx.stroke(this.borders[i])
+      }
+      ctx.restore()
     })
     ctx.globalAlpha = 1
 
@@ -211,22 +229,45 @@ export class MapView {
     const bg = themeColour('--bg')
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    empires.forEach((e, i) => {
-      const l = e.label
-      if (!l) return
-      // The name grows with the group's size but never spills far past the group's width.
-      ctx.font = `600 100px system-ui, sans-serif`
-      const perUnit = ctx.measureText(e.name).width / 100
-      const size = Math.min(labelScale * Math.sqrt(l.systems) + 4, Math.max(1.4 * l.width, 40) / perUnit)
-      if (size * this.scale < minLabelPx) return
-      ctx.font = `600 ${size}px system-ui, sans-serif`
+    // The selected empire's name and then bigger names are placed first; a name that overlaps one already placed moves up or down, then shrinks, then hides.
+    ctx.font = `600 100px system-ui, sans-serif`
+    const wanted = empires
+      .map((e, i) => {
+        const l = e.label
+        if (!l) return null
+        const perUnit = ctx.measureText(e.name).width / 100
+        // The name grows with the group's size but never spills far past the group's width.
+        const size = Math.min(labelScale * Math.sqrt(l.systems) + 4, Math.max(1.4 * l.width, 40) / perUnit)
+        return { e, i, l, size, perUnit }
+      })
+      .filter((w) => w !== null)
+      .sort((a, b) => Number(b.i === sel) - Number(a.i === sel) || b.size - a.size)
+    const placed: { x0: number; y0: number; x1: number; y1: number }[] = []
+    const textColour = themeColour('--text')
+    for (const { e, i, l, size: full, perUnit } of wanted) {
+      let spot: { size: number; y: number } | null = null
+      search: for (const shrink of [1, 0.8, 0.65]) {
+        const size = full * shrink
+        if (size * this.scale < minLabelPx) break
+        for (const dy of [0, -1.1, 1.1, -2.2, 2.2]) {
+          const w = (size * perUnit) / 2, h = size * 0.6, y = l.y + dy * size
+          const box = { x0: l.x - w, y0: y - h, x1: l.x + w, y1: y + h }
+          if (!placed.some((p) => box.x0 < p.x1 && p.x0 < box.x1 && box.y0 < p.y1 && p.y0 < box.y1)) {
+            placed.push(box)
+            spot = { size, y }
+            break search
+          }
+        }
+      }
+      if (!spot) continue
+      ctx.font = `600 ${spot.size}px system-ui, sans-serif`
       ctx.globalAlpha = sel === null || sel === i ? 1 : 0.35
       ctx.strokeStyle = bg
-      ctx.lineWidth = size * 0.2
-      ctx.strokeText(e.name, l.x, l.y)
-      ctx.fillStyle = themeColour('--text')
-      ctx.fillText(e.name, l.x, l.y)
-    })
+      ctx.lineWidth = spot.size * 0.2
+      ctx.strokeText(e.name, l.x, spot.y)
+      ctx.fillStyle = textColour
+      ctx.fillText(e.name, l.x, spot.y)
+    }
 
     // Capital arks keep a fixed screen size, so they are drawn in CSS pixels, above the star of their system.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -262,8 +303,13 @@ export class MapView {
       drag = { x: e.clientX, y: e.clientY, moved: false }
       c.setPointerCapture(e.pointerId)
     })
+    c.addEventListener('pointerleave', () => (this.tooltip.hidden = true))
     c.addEventListener('pointermove', (e) => {
-      if (!drag) return
+      if (!drag) {
+        this.hover(e.offsetX, e.offsetY)
+        return
+      }
+      this.tooltip.hidden = true
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y
       if (!drag.moved && Math.hypot(dx, dy) < 4) return
       drag.moved = true
@@ -277,6 +323,51 @@ export class MapView {
       if (drag && !drag.moved) this.onPick(this.pick(e.offsetX, e.offsetY))
       drag = null
     })
+  }
+
+  // hover shows the system nearest to the pointer, or else the empire under it.
+  private hover(sx: number, sy: number) {
+    const m = this.model
+    if (!m) return
+    const empires = m.empires ?? []
+    let best = hoverRadius, sys = -1
+    m.systems.forEach((s, i) => {
+      const d = Math.hypot(s.x * this.scale + this.tx - sx, s.y * this.scale + this.ty - sy)
+      if (d < best) {
+        best = d
+        sys = i
+      }
+    })
+    const lines: string[] = []
+    if (sys >= 0) {
+      const s = m.systems[sys]
+      lines.push(s.name, s.owner >= 0 ? empires[s.owner].name : 'Unclaimed')
+      const capitalOf = empires.find((e) => e.capitalSystem === sys)
+      if (capitalOf) lines.push(`Capital of ${capitalOf.name}`)
+      for (const a of m.arks ?? []) {
+        if (a.system === sys && a.owner >= 0) lines.push(`Capital ark of ${empires[a.owner].name}`)
+      }
+    } else {
+      const i = this.pick(sx, sy)
+      if (i === null) {
+        this.tooltip.hidden = true
+        return
+      }
+      const e = empires[i]
+      lines.push(e.name, `${fmt.format(e.systems)} systems`)
+    }
+    const t = this.tooltip
+    t.replaceChildren()
+    const title = document.createElement('b')
+    title.textContent = lines[0]
+    t.append(title, lines.slice(1).join('\n'))
+    t.hidden = false
+    // Keep the tooltip inside the map, flipping it to the left or above near the edges.
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight
+    const x = sx + 14 + t.offsetWidth > w ? sx - 14 - t.offsetWidth : sx + 14
+    const y = sy + 14 + t.offsetHeight > h ? sy - 14 - t.offsetHeight : sy + 14
+    t.style.left = `${x}px`
+    t.style.top = `${y}px`
   }
 
   // Empire whose way line or territory is under a screen point; relies on draw() leaving the world transform set.

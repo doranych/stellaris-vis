@@ -2,6 +2,7 @@ import './style.css'
 import type { Model } from './model'
 import { MapView } from './map'
 import { EmpireTable } from './table'
+import { renderDetails } from './details'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 const status = $<HTMLSpanElement>('status')
@@ -41,8 +42,11 @@ const select = (i: number | null) => {
   table.selected = i
   map.draw()
   table.render()
+  renderDetails(details, model, i)
 }
-const map = new MapView($<HTMLCanvasElement>('map'), select)
+const details = $('details')
+let model: Model | null = null
+const map = new MapView($<HTMLCanvasElement>('map'), $('tooltip'), select)
 const table = new EmpireTable($('table'), select)
 fitButton.onclick = () => map.fit()
 setTheme(storedTheme() ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'))
@@ -77,6 +81,8 @@ async function open(file: File) {
       return
     }
     const m: Model = JSON.parse(e.data.json)
+    model = m
+    renderDetails(details, m, null)
     map.load(m)
     table.load(m.empires ?? [])
     fitButton.disabled = false

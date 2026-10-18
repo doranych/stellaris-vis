@@ -14,8 +14,14 @@
       <button id="theme" type="button" aria-label="Switch colour theme"></button>
     </header>
     <main>
-      <canvas id="map"></canvas>
-      <section id="table"></section>
+      <div id="map-wrap">
+        <canvas id="map"></canvas>
+        <div id="tooltip" hidden></div>
+      </div>
+      <aside id="side">
+        <section id="details" hidden></section>
+        <section id="table"></section>
+      </aside>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -90,7 +90,7 @@ func Extract(gamestate []byte, progress Progress) (*model.Model, error) {
 		progress = func(string, float64) {}
 	}
 	progress("parse", 0)
-	root, err := clausewitz.Parse(gamestate, "version", "name", "date", "player", "galactic_object", "starbase_mgr", "ships", "country", "bypasses", "planets")
+	root, err := clausewitz.Parse(gamestate, "version", "name", "date", "player", "galactic_object", "starbase_mgr", "ships", "country", "bypasses", "planets", "federation")
 	if err != nil {
 		return nil, fmt.Errorf("parse gamestate: %w", err)
 	}
@@ -117,6 +117,7 @@ func Extract(gamestate []byte, progress Progress) (*model.Model, error) {
 	fleetOwner := map[uint32]uint32{}
 	empireIdx := map[uint32]int32{}
 	capitalColony := map[int32]uint32{} // empire index to its capital colony id
+	subjectOf := map[uint32]uint32{}    // subject country id to its overlord's
 	for _, c := range root.Get("country").Kids {
 		if c.Kids == nil { // deleted: 123=none
 			continue
@@ -147,22 +148,47 @@ func Extract(gamestate []byte, progress Progress) (*model.Model, error) {
 		}
 		empireIdx[uint32(cid)] = int32(len(m.Empires))
 		m.Empires = append(m.Empires, model.Empire{
-			ID:            uint32(cid),
-			Name:          Name(c.Get("name")),
-			Type:          typ,
-			BorderColour:  border,
-			FillColour:    fill,
-			MilitaryPower: num(c.Get("military_power")),
-			EconomyPower:  num(c.Get("economy_power")),
-			TechPower:     num(c.Get("tech_power")),
-			FleetSize:     int(num(c.Get("fleet_size"))),
-			VictoryScore:  num(c.Get("victory_score")),
-			VictoryRank:   int(num(c.Get("victory_rank"))),
-			IsPlayer:      players[uint32(cid)],
-			CapitalSystem: -1,
+			ID:             uint32(cid),
+			Name:           Name(c.Get("name")),
+			Type:           typ,
+			BorderColour:   border,
+			FillColour:     fill,
+			MilitaryPower:  num(c.Get("military_power")),
+			EconomyPower:   num(c.Get("economy_power")),
+			TechPower:      num(c.Get("tech_power")),
+			FleetSize:      int(num(c.Get("fleet_size"))),
+			VictoryScore:   num(c.Get("victory_score")),
+			VictoryRank:    int(num(c.Get("victory_rank"))),
+			IsPlayer:       players[uint32(cid)],
+			CapitalSystem:  -1,
+			Authority:      readable(str(c.Get("government").Get("authority"))),
+			Government:     readable(str(c.Get("government").Get("type"))),
+			Origin:         readable(str(c.Get("government").Get("origin"))),
+			Ethics:         readableList(c.Get("ethos").Get("ethics")),
+			Civics:         readableList(c.Get("government").Get("civics")),
+			AscensionPerks: readableList(c.Get("ascension_perks")),
+			Colonies:       len(kids(c.Get("owned_planets"))),
+			Pops:           int(num(c.Get("num_sapient_pops"))),
+			EmpireSize:     int(num(c.Get("empire_size"))),
 		})
+		e := &m.Empires[len(m.Empires)-1]
+		if f, err := ref(c.Get("federation")); err == nil {
+			e.Federation = Name(root.Get("federation").Get(strconv.FormatUint(uint64(f), 10)).Get("name"))
+		}
+		for _, s := range kids(c.Get("subjects")) {
+			if sid, err := s.ID(); err == nil {
+				subjectOf[sid] = uint32(cid)
+				e.Subjects = append(e.Subjects, Name(root.Get("country").Get(strconv.FormatUint(uint64(sid), 10)).Get("name")))
+			}
+		}
 		if p, err := ref(c.Get("capital")); err == nil {
 			capitalColony[empireIdx[uint32(cid)]] = p
+		}
+	}
+
+	for i := range m.Empires {
+		if o, ok := subjectOf[m.Empires[i].ID]; ok {
+			m.Empires[i].Overlord = Name(root.Get("country").Get(strconv.FormatUint(uint64(o), 10)).Get("name"))
 		}
 	}
 
@@ -533,11 +559,38 @@ func Name(n *clausewitz.Node) string {
 	case "AofB":
 		return vars["1"] + " of " + vars["2"]
 	}
+	// Format keys such as Allianceof read as "Alliance of {1}".
+	if base, ok := strings.CutSuffix(key, "of"); ok && base != "" && !strings.Contains(key, "_") {
+		key = base + " of"
+	}
 	words := []string{leaf(key)}
 	for _, k := range order {
 		words = append(words, vars[k])
 	}
 	return strings.Join(slices.DeleteFunc(words, func(s string) bool { return s == "" }), " ")
+}
+
+// readable turns a game key such as ethic_fanatic_xenophile into Fanatic xenophile.
+func readable(key string) string {
+	for _, p := range []string{"ethic_", "civic_", "auth_", "gov_", "origin_", "ap_"} {
+		if s, ok := strings.CutPrefix(key, p); ok {
+			key = s
+			break
+		}
+	}
+	key = strings.ReplaceAll(key, "_", " ")
+	if key == "" {
+		return ""
+	}
+	return strings.ToUpper(key[:1]) + key[1:]
+}
+
+func readableList(n *clausewitz.Node) []string {
+	var out []string
+	for _, k := range kids(n) {
+		out = append(out, readable(str(k)))
+	}
+	return out
 }
 
 // leaf turns a localisation key such as SPEC_RekThalar_planet or REP3_PLANET_Kurec into readable text.
