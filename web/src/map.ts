@@ -1,6 +1,10 @@
 import { drawArk } from './ark'
 import type { Model } from './model'
 import { fmt } from './table'
+import { drawSystems, hasStation, iconsFromPx, indexSystems, namesFromPx, systemTooltip, type SystemIndex } from './systems'
+
+// Colours of wormhole links by kind; plain wormholes use the neutral icon colour.
+const linkColours: Record<string, string> = { strangeWormhole: '#b07cf0', shroudTunnel: '#b07cf0', starlitWormhole: '#e6c35a' }
 
 const wayLineWidth = 5
 const relayWidth = 2.5
@@ -53,7 +57,8 @@ function readable(hex: string, theme: 'dark' | 'light'): string {
     else h = (r - g) / d + 4
   }
   l = Math.min(lightness[theme].max, Math.max(lightness[theme].min, l))
-  return `hsl(${(h * 60 + 360) % 360} ${s * 100}% ${l * 100}%)`
+  // Comma syntax, because SVG attributes in icon images do not accept the space-separated form everywhere.
+  return `hsl(${((h * 60 + 360) % 360).toFixed(1)}, ${(s * 100).toFixed(1)}%, ${(l * 100).toFixed(1)}%)`
 }
 
 export class MapView {
@@ -64,6 +69,10 @@ export class MapView {
   private lanes = new Path2D()
   private relays = new Path2D()
   private wayLines = new Map<number, Path2D>() // by owner empire index, -1 for unpainted owners
+  private wormholes = new Map<string, Path2D>() // links by kind
+  private gateways: number[] = [] // systems with a gateway
+  private hovered = -1 // system under the pointer
+  private index: SystemIndex = { fleets: new Map(), arks: new Map(), stars: () => 1 }
   private arkHits: { x: number; y: number; owner: number }[] = [] // screen positions from the last draw
   private layer = { canvas: document.createElement('canvas'), key: '', scale: 1, tx: 0, ty: 0 }
   private modelVersion = 0
@@ -74,6 +83,7 @@ export class MapView {
   private tx = 0
   private ty = 0
   selected: number | null = null
+  spoilers = false
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -123,6 +133,15 @@ export class MapView {
       if (!p) this.wayLines.set(w.owner, (p = new Path2D()))
       line(p, w.a, w.b)
     }
+    this.wormholes = new Map()
+    for (const w of model.wormholeLinks ?? []) {
+      let p = this.wormholes.get(w.kind)
+      if (!p) this.wormholes.set(w.kind, (p = new Path2D()))
+      line(p, w.a, w.b)
+    }
+    this.index = indexSystems(model)
+    this.gateways = model.systems.flatMap((s, i) => (s.passages?.includes('gateway') ? [i] : []))
+    this.hovered = -1
     this.fit()
   }
 
@@ -266,6 +285,56 @@ export class MapView {
       ctx.stroke(star(s.x, s.y, capitalRadius * px))
     })
 
+    // Nomads own few systems but keep stations in many: ring those stars in the selected empire's colour.
+    if (sel !== null) {
+      ctx.globalAlpha = 1
+      ctx.strokeStyle = border[sel]
+      ctx.lineWidth = 2 * px
+      for (const s of m.systems) {
+        if (s.owner !== sel && hasStation(s, sel)) {
+          ctx.beginPath()
+          ctx.arc(s.x, s.y, 6 * px, 0, 2 * Math.PI)
+          ctx.stroke()
+        }
+      }
+    }
+
+    // Wormhole links help on the whole-galaxy view; closer in they only show for the system under the pointer,
+    // together with its gateway's links to every other gateway.
+    const detailed = m.spacing * this.scale >= namesFromPx
+    ctx.globalAlpha = 1
+    ctx.lineWidth = 1.5 * px
+    ctx.setLineDash([4 * px, 3 * px])
+    const neutralLink = themeColour('--neutral-icon')
+    if (!this.spoilers) {
+      // Where passages lead counts as a spoiler, so links stay hidden unless asked for.
+    } else if (!detailed) {
+      for (const [kind, p] of this.wormholes) {
+        ctx.strokeStyle = linkColours[kind] ?? neutralLink
+        ctx.stroke(p)
+      }
+    } else if (this.hovered >= 0) {
+      const h = m.systems[this.hovered]
+      const link = (to: number, colour: string) => {
+        ctx.strokeStyle = colour
+        ctx.beginPath()
+        ctx.moveTo(h.x, h.y)
+        ctx.lineTo(m.systems[to].x, m.systems[to].y)
+        ctx.stroke()
+      }
+      for (const w of m.wormholeLinks ?? []) {
+        if (w.a === this.hovered) link(w.b, linkColours[w.kind] ?? neutralLink)
+        if (w.b === this.hovered) link(w.a, linkColours[w.kind] ?? neutralLink)
+      }
+      if (h.passages?.includes('gateway')) {
+        // Gateways all link to each other, so their many lines stay faint.
+        ctx.globalAlpha = 0.45
+        for (const g of this.gateways) if (g !== this.hovered) link(g, neutralLink)
+        ctx.globalAlpha = 1
+      }
+    }
+    ctx.setLineDash([])
+
     const bg = themeColour('--bg')
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
@@ -284,7 +353,9 @@ export class MapView {
       .sort((a, b) => Number(b.i === sel) - Number(a.i === sel) || b.size - a.size)
     const placed: { x0: number; y0: number; x1: number; y1: number }[] = []
     const textColour = themeColour('--text')
-    for (const { e, i, l, size: full, perUnit } of wanted) {
+    // Close in, where system icons show, empire names would only cover them.
+    const closeIn = m.spacing * this.scale >= iconsFromPx
+    for (const { e, i, l, size: full, perUnit } of closeIn ? [] : wanted) {
       let spot: { size: number; y: number } | null = null
       search: for (const shrink of [1, 0.8, 0.65]) {
         const size = full * shrink
@@ -301,7 +372,8 @@ export class MapView {
       }
       if (!spot) continue
       ctx.font = `600 ${spot.size}px system-ui, sans-serif`
-      ctx.globalAlpha = sel === null || sel === i ? 1 : 0.35
+      // Empire names step back once system names show, so they do not cover them.
+      ctx.globalAlpha = (sel === null || sel === i ? 1 : 0.35) * (detailed ? 0.4 : 1)
       ctx.strokeStyle = bg
       ctx.lineWidth = spot.size * 0.2
       ctx.strokeText(e.name, l.x, spot.y)
@@ -309,10 +381,25 @@ export class MapView {
       ctx.fillText(e.name, l.x, spot.y)
     }
 
-    // Capital arks keep a fixed screen size, so they are drawn in CSS pixels, above the star of their system.
+    // System names, icons and capital arks keep a fixed screen size, so they are drawn in CSS pixels.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.globalAlpha = 1
+    drawSystems({
+      ctx,
+      m,
+      index: this.index,
+      sel,
+      border,
+      unowned,
+      scale: this.scale,
+      toScreen: (s) => [s.x * this.scale + this.tx, s.y * this.scale + this.ty],
+      width: canvas.clientWidth,
+      height: canvas.clientHeight,
+      onLoad: () => this.requestDraw(),
+    })
     this.arkHits = []
     for (const a of m.arks ?? []) {
+      if (!a.capital) continue
       const s = m.systems[a.system]
       const x = s.x * this.scale + this.tx
       const y = s.y * this.scale + this.ty - arkLift
@@ -358,7 +445,13 @@ export class MapView {
       drag = { x: e.clientX, y: e.clientY, moved: false }
       c.setPointerCapture(e.pointerId)
     })
-    c.addEventListener('pointerleave', () => (this.tooltip.hidden = true))
+    c.addEventListener('pointerleave', () => {
+      this.tooltip.hidden = true
+      if (this.hovered >= 0) {
+        this.hovered = -1
+        this.requestDraw()
+      }
+    })
     c.addEventListener('pointermove', (e) => {
       if (!drag) {
         this.hover(e.offsetX, e.offsetY)
@@ -393,15 +486,17 @@ export class MapView {
         sys = i
       }
     })
+    if (sys !== this.hovered) {
+      this.hovered = sys
+      this.requestDraw()
+    }
     const lines: string[] = []
     if (sys >= 0) {
       const s = m.systems[sys]
       lines.push(s.name, s.owner >= 0 ? empires[s.owner].name : 'Unclaimed')
       const capitalOf = empires.find((e) => e.capitalSystem === sys)
       if (capitalOf) lines.push(`Capital of ${capitalOf.name}`)
-      for (const a of m.arks ?? []) {
-        if (a.system === sys && a.owner >= 0) lines.push(`Capital ark of ${empires[a.owner].name}`)
-      }
+      lines.push(...systemTooltip(s, sys, m, this.index))
     } else {
       const i = this.pick(sx, sy)
       if (i === null) {

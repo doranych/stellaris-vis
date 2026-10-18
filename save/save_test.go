@@ -22,6 +22,7 @@ func TestName(t *testing.T) {
 		{`name={ key="%ADJECTIVE%" variables={ {key="adjective" value={key="SPEC_Zmelder"}} {key="1" value={key="%ADJ%" variables={ {key="1" value={key="Sacred_Theocracy"}} }}} } }`, "Zmelder Sacred Theocracy"},
 		{`name={ key="%ADJ%" variables={ {key="1" value={key="Interstellar" variables={ {key="1" value={key="Nucleus"}} }}} } }`, "Interstellar Nucleus"},
 		{`name={ key="Gottara" }`, "Gottara"},
+		{`name={ key="SUFFIX_NAME_FORMAT" variables={ {key="NAME" value={key="MACHINE1_SHIP_Assassin"}} {key="SUFFIX" value={key="VII" literal=yes}} } }`, "Assassin VII"},
 		{`name={ key="%ADJ%" variables={ {key="1" value={key="Allianceof" variables={ {key="1" value={key="StarNations"}} }}} } }`, "Alliance of StarNations"},
 	}
 	for _, tt := range tests {
@@ -29,6 +30,29 @@ func TestName(t *testing.T) {
 			root, err := clausewitz.Parse([]byte(tt.in))
 			require.NoError(t, err)
 			require.Equal(t, tt.want, Name(root.Get("name")))
+		})
+	}
+}
+
+func TestMegastructureName(t *testing.T) {
+	tests := []struct {
+		typ  string
+		want string
+	}{
+		{"orbital_arc_furnace_4", "Orbital arc furnace"},
+		{"dyson_swarm_3", "Dyson swarm"},
+		{"think_tank_restored", "Think tank"},
+		{"cosmogenesis_world_ruined", "Cosmogenesis world"},
+		{"shroud_seal", "Shroud seal"},
+		{"quantum_catapult_3", "Quantum catapult"},
+		{"gateway_final", ""},
+		{"lgate_base", ""},
+		{"hyper_relay", ""},
+		{"habitat_major_orbital", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.typ, func(t *testing.T) {
+			require.Equal(t, tt.want, megastructureName(tt.typ))
 		})
 	}
 }
@@ -57,13 +81,15 @@ func TestOpen(t *testing.T) {
 		empires   int
 		wayLines  int
 		arks      int
+		colonies  int
+		links     int
 		player    string
 		playerSys int
 	}{
 		// Denis's ironman, 4.5.2, 2623.07.01: the player is a nomad without systems.
-		{path: "testdata/ironman.sav", systems: 1011, owned: 953, lanes: 1466, empires: 22, wayLines: 48, arks: 1, player: "Interstellar Techarus Nucleus", playerSys: 0},
+		{path: "testdata/ironman.sav", systems: 1011, owned: 953, lanes: 1466, empires: 22, wayLines: 48, arks: 12, colonies: 346, links: 17, player: "Interstellar Techarus Nucleus", playerSys: 0},
 		// github.com/chennin/stellaris-dashboard-test-saves, 4.0.1/unitednationsofearth2_-629118313.
-		{path: filepath.Join(os.Getenv("STELLARIS_SAVES"), "autosave_2312.01.01.sav"), systems: 602, owned: 474, lanes: 859, empires: 14, wayLines: 0, player: "Bilnoc Autocracy", playerSys: 37},
+		{path: filepath.Join(os.Getenv("STELLARIS_SAVES"), "autosave_2312.01.01.sav"), systems: 602, owned: 474, lanes: 859, empires: 14, wayLines: 0, colonies: 59, links: 7, player: "Bilnoc Autocracy", playerSys: 37},
 	}
 	for _, tt := range tests {
 		t.Run(filepath.Base(tt.path), func(t *testing.T) {
@@ -79,6 +105,13 @@ func TestOpen(t *testing.T) {
 			require.Len(t, m.Empires, tt.empires)
 			require.Len(t, m.WayLines, tt.wayLines)
 			require.Len(t, m.Arks, tt.arks)
+			require.Len(t, m.WormholeLinks, tt.links)
+			colonies := 0
+			for _, s := range m.Systems {
+				colonies += s.Colonies
+			}
+			require.Equal(t, tt.colonies, colonies)
+			require.NotEmpty(t, m.Fleets)
 			owned := 0
 			for _, s := range m.Systems {
 				if s.Owner >= 0 {

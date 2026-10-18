@@ -25,6 +25,8 @@ Open http://localhost:5173 and drop a `.sav` file onto the page. Saves are in `D
 - Empire names sit on the largest hyperlane-connected group of their systems; small ones appear when zoomed in. Capitals are marked with ✩ in the border colour; a nomad's capital is its capital ark, drawn as an ark icon without ✩, with one glowing ring per tier, where the ark is now.
 - Overlapping names move up or down, then shrink, then hide until zoomed in.
 - Hovering a star shows the system and its owner; hovering territory shows the empire.
+- Zoomed in, systems get names and then a row of icons: station, colonies, megastructures, gateways, relays, wormholes (with dashed links to their other end), and the selected empire's arks and fleets. The legend at the bottom of the map lists every icon; the icons are drawn for this project, not taken from the game.
+- A selected empire's stations in other empires' systems, such as a nomad's waystations, are ringed in its colour.
 - The selected empire's panel shows its government, ethics, civics, origin, ascension perks, federation, overlord and subjects, with game keys made readable instead of localised.
 - Clicking an empire's territory, way line or table row highlights it.
 
